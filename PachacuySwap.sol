@@ -32,7 +32,7 @@ contract PachacuySwap is
 {
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     uint256 private _swapPercentageUSDCtoPcuy = 2500 * 1e18; //%
-    uint256 private _swapPercentagePCUYtoUSDC = 35 * 1e17; //%
+    uint256 private _swapPercentagePCUYtoUSDC = 35 * 1e5; //%
     uint256 private _totalUSDCswap;
     uint256 private _totalPCUYswap;
 
@@ -92,6 +92,19 @@ contract PachacuySwap is
     function totalPCUYswap() public view returns (uint256) {
         return _totalPCUYswap;
     }
+
+    function USDC_to_Receive(uint256 amount) public view returns (uint256) {
+       
+        uint256 tokenToTransfer = Math.mulDiv(
+            amount,
+            _swapPercentagePCUYtoUSDC,
+            100 * 1e6
+        );
+         return tokenToTransfer;
+
+    }
+
+    
 
     //Get the number of tokens authorized to exchange
     function getAuthorizedPCUY(address player) public view returns (uint256) {
@@ -173,7 +186,7 @@ contract PachacuySwap is
         uint256 tokenToTransfer = Math.mulDiv(
             _pcuyAmount,
             _swapPercentagePCUYtoUSDC,
-            100 * 1e18
+            100 * 1e6
         );
         uint256 usdcBalance = _USDCToken.balanceOf(address(this));
         require(
