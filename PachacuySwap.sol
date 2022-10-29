@@ -210,13 +210,13 @@ contract PachacuySwap is
 
     //extracts the entire PCUY balance from the SWAP
     function getAllBalancePCUY() public onlyRole(ADMIN_ROLE) {
-        uint256 pcuyBalance = _PachacuyToken.balanceOf(_msgSender());
+        uint256 pcuyBalance = _PachacuyToken.balanceOf(address(this));
         _PachacuyToken.send(_msgSender(), pcuyBalance, "");
     }
 
     //extracts the entire PCUY balance from the SWAP
     function getAllBalanceUSDC() public onlyRole(ADMIN_ROLE) {
-        uint256 usdcBalance = _USDCToken.balanceOf(_msgSender());
+        uint256 usdcBalance = _USDCToken.balanceOf(address(this));
         _USDCToken.transfer(_msgSender(), usdcBalance);
     }
 
