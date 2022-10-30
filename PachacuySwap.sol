@@ -31,8 +31,8 @@ contract PachacuySwap is
     IERC777Recipient
 {
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
-    uint256 private _swapPercentageUSDCtoPcuy = 2500 * 1e18; //%
-    uint256 private _swapPercentagePCUYtoUSDC = 35 * 1e5; //%
+    uint256 private _swapPercentageUSDCtoPcuy = 2000 * 1e18; //%
+    uint256 private _swapPercentagePCUYtoUSDC = 35 * 1e5 ; //%
     uint256 private _totalUSDCswap;
     uint256 private _totalPCUYswap;
 
@@ -94,9 +94,11 @@ contract PachacuySwap is
     }
 
     function USDC_to_Receive(uint256 amount) public view returns (uint256) {
-       
+
+        uint256 newAmount=amount * 1e6;
+    
         uint256 tokenToTransfer = Math.mulDiv(
-            amount,
+            newAmount,
             _swapPercentagePCUYtoUSDC,
             100 * 1e6
         );
@@ -113,33 +115,46 @@ contract PachacuySwap is
 
     //SWAP PCUY to USDC
     function swapUSDC_To_PCUY(uint256 _usdcAmount) public whenNotPaused {
+
+
+         //Whole amount without decimal zeros.
+        //For PCUY add 18 decimal zeros
+        //For USDC add 6 decimal zeros
+
+
+        uint256 newUSDCAmount6= _usdcAmount * 1e6;
+       
+
         uint256 usdcAllowance = _USDCToken.allowance(
             _msgSender(),
             address(this)
         );
 
         require(
-            usdcAllowance >= _usdcAmount,
+            usdcAllowance >= newUSDCAmount6,
             "CUY SWAP: Not enough USDC allowance"
         );
         uint256 usdcBalance = _USDCToken.balanceOf(_msgSender());
         require(
-            usdcBalance >= _usdcAmount,
+            usdcBalance >= newUSDCAmount6,
             "CUY SWAP: Not enough USDC balance"
         );
         bool success = _USDCToken.transferFrom(
             _msgSender(),
             address(this),
-            _usdcAmount
+            newUSDCAmount6
         );
         require(success, "CUY SWAP: Failed to transfer USDC");
-        _totalUSDCswap += _usdcAmount;
+        _totalUSDCswap += newUSDCAmount6;
 
         uint256 tokenToTransfer = Math.mulDiv(
             _usdcAmount,
             _swapPercentageUSDCtoPcuy,
             100 * 1e18
         );
+
+        uint256 baseTokenToTransfer=tokenToTransfer;
+        tokenToTransfer=tokenToTransfer * 1e18;
 
         uint256 pcuyBalance = _PachacuyToken.balanceOf(address(this));
         require(
@@ -149,13 +164,21 @@ contract PachacuySwap is
         _PachacuyToken.send(_msgSender(), tokenToTransfer, "");
         _totalPCUYswap += tokenToTransfer;
 
-        playersAuthorized[_msgSender()] = tokenToTransfer;
+        playersAuthorized[_msgSender()] = baseTokenToTransfer;
 
         emit TokenPcuySwap(_msgSender(), _usdcAmount, tokenToTransfer);
     }
 
     //Swap PCUY to USDC
     function swapPCUY_To_USDC(uint256 _pcuyAmount) public whenNotPaused {
+
+        //Whole amount without decimal zeros.
+        //For PCUY add 18 decimal zeros
+        //For USDC add 6 decimal zeros
+
+        uint256 newPCUYAmount18= _pcuyAmount * 1e18;
+        uint256 newPCUYAmount6= _pcuyAmount * 1e6;
+
         uint256 pcuyAutorized = playersAuthorized[_msgSender()];
 
         require(
@@ -170,34 +193,34 @@ contract PachacuySwap is
 
         uint256 pcuyBalance = _PachacuyToken.balanceOf(_msgSender());
         require(
-            pcuyBalance >= _pcuyAmount,
+            pcuyBalance >= newPCUYAmount18,
             "CUY SWAP: Not enough PCUY balance"
         );
 
         _PachacuyToken.operatorSend(
             _msgSender(),
             address(this),
-            _pcuyAmount,
+            newPCUYAmount18,
             "",
             ""
         );
 
-        _totalPCUYswap += _pcuyAmount;
+        _totalPCUYswap =_totalPCUYswap + newPCUYAmount18;
         uint256 tokenToTransfer = Math.mulDiv(
-            _pcuyAmount,
+            newPCUYAmount6,
             _swapPercentagePCUYtoUSDC,
             100 * 1e6
         );
         uint256 usdcBalance = _USDCToken.balanceOf(address(this));
         require(
             usdcBalance >= tokenToTransfer,
-            "CUY SWAP: Not enough token to Swap"
+            "CUY SWAP: Not enough token USDC to Swap"
         );
         _USDCToken.transfer(_msgSender(), tokenToTransfer);
         _totalUSDCswap += tokenToTransfer;
 
         playersAuthorized[_msgSender()] = pcuyAutorized - _pcuyAmount;
-        emit TokenUSDCSwap(_msgSender(), _pcuyAmount, tokenToTransfer);
+        emit TokenUSDCSwap(_msgSender(), newPCUYAmount6, tokenToTransfer);
     }
 
     //ADMIN FUNCTIONS
