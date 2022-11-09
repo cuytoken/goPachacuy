@@ -4,7 +4,7 @@
 pragma solidity ^0.8.2;
 
 //In progress
-//is pending: Delete sales order, execute sales order, validate balances.
+//is pending:  execute sales order, validate balances.
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC777/IERC777Sender.sol";
@@ -46,9 +46,7 @@ contract CuyOrderBook is AccessControl, Pausable {
         _setupRole(ADMIN_ROLE, _msgSender());
     }
 
-
-
- //Set PCUY Token Address
+    //Set PCUY Token Address
     function setPCUYTokenAddress(address pcuyAddress)
         public
         onlyRole(ADMIN_ROLE)
@@ -61,8 +59,7 @@ contract CuyOrderBook is AccessControl, Pausable {
         public
         whenNotPaused
     {
-      
-      require(
+        require(
             _PachacuyToken.isOperatorFor(address(this), _msgSender()),
             "CUY SWAP: Not enough PCUY allowance"
         );
@@ -76,8 +73,7 @@ contract CuyOrderBook is AccessControl, Pausable {
             executed: false
         });
 
-        salesBook[_msgSender()] =newSalesOrder;
-
+        salesBook[_msgSender()] = newSalesOrder;
 
         sellers.push(_msgSender());
 
@@ -86,6 +82,7 @@ contract CuyOrderBook is AccessControl, Pausable {
 
     //Swap PCUY to USDC
     function removeSellorder() public whenNotPaused {
+        salesOrder storage so = salesBook[_msgSender()];
         salesBook[_msgSender()] = salesOrder({
             numID: 0,
             pcuyAmount: 0,
@@ -93,8 +90,13 @@ contract CuyOrderBook is AccessControl, Pausable {
             executed: true
         });
 
+        if (sellers.length > 0) {
+            sellers[so.numID - 1] = sellers[sellers.length - 1];
+            sellers.pop();
+        }
 
         emit sellOrderremoved(_msgSender());
+        
     }
 
     function listSalesOrder()
@@ -106,8 +108,8 @@ contract CuyOrderBook is AccessControl, Pausable {
             uint256[] memory _usdcAmounts
         )
     {
-        uint256[] memory aux_pcuysAmounts = new uint256[](sellers.length) ;
-        uint256[] memory aux_usdcAmounts = new uint256[](sellers.length) ;
+        uint256[] memory aux_pcuysAmounts = new uint256[](sellers.length);
+        uint256[] memory aux_usdcAmounts = new uint256[](sellers.length);
 
         uint256 index = sellers.length;
         uint256 s;
@@ -116,9 +118,8 @@ contract CuyOrderBook is AccessControl, Pausable {
             salesOrder storage so = salesBook[sellers[s]];
 
             if (so.executed == false) {
-                aux_pcuysAmounts[s]=so.pcuyAmount;
-                aux_usdcAmounts[s]=so.usdcAmount;
-                
+                aux_pcuysAmounts[s] = so.pcuyAmount;
+                aux_usdcAmounts[s] = so.usdcAmount;
             }
         }
 
