@@ -4,7 +4,7 @@
 pragma solidity ^0.8.2;
 
 //In progress
-//is pending:  execute sales order, validate balances.
+//is pending: Delete sales order, execute sales order, validate balances.
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC777/IERC777Sender.sol";
@@ -39,6 +39,7 @@ contract CuyOrderBook is AccessControl, Pausable {
     event sellOrderremoved(address seller);
 
     mapping(address => salesOrder) private salesBook;
+    mapping(address => uint256) private blackList;
 
     address[] private sellers;
 
@@ -62,6 +63,12 @@ contract CuyOrderBook is AccessControl, Pausable {
         require(
             _PachacuyToken.isOperatorFor(address(this), _msgSender()),
             "CUY SWAP: Not enough PCUY allowance"
+        );
+
+        uint256 pcuyBalance = _PachacuyToken.balanceOf(_msgSender());
+        require(
+            pcuyBalance >= _pcuyAmount,
+            "CUY SWAP: Not enough PCUY balance"
         );
 
         orderBookNum = orderBookNum + 1;
@@ -92,11 +99,59 @@ contract CuyOrderBook is AccessControl, Pausable {
 
         if (sellers.length > 0) {
             sellers[so.numID - 1] = sellers[sellers.length - 1];
-            sellers.pop();
+        }
+        sellers.pop();
+        emit sellOrderremoved(_msgSender());
+    }
+
+    function buyOrder(address _seller) public whenNotPaused {
+        salesOrder storage so = salesBook[_msgSender()];
+        salesBook[_msgSender()] = salesOrder({
+            numID: 0,
+            pcuyAmount: 0,
+            usdcAmount: 0,
+            executed: true
+        });
+
+        require(
+            _PachacuyToken.isOperatorFor(address(this), _msgSender()),
+            "CUY SWAP: Not enough PCUY allowance"
+        );
+
+        uint256 pcuyBalance = _PachacuyToken.balanceOf(_msgSender());
+
+        if (pcuyBalance <= so.pcuyAmount) {
+            blackList[_seller] = blackList[_seller] + 1;
+            require(false, "CUY SWAP: The holder no longer has the tokens");
         }
 
-        emit sellOrderremoved(_msgSender());
-        
+        uint256 usdcAllowance = _USDCToken.allowance(
+            _msgSender(),
+            address(this)
+        );
+
+        require(
+            usdcAllowance >= so.usdcAmount,
+            "CUY SWAP: Not enough USDC allowance"
+        );
+
+        uint256 usdcBalance = _USDCToken.balanceOf(_msgSender());
+        require(
+            usdcBalance >= so.usdcAmount,
+            "CUY SWAP: Not enough USDC balance"
+        );
+
+        //enviamos los pCUY
+
+        _PachacuyToken.operatorSend(
+            _seller,
+            _msgSender(),
+            so.pcuyAmount * 1e18,
+            "",
+            ""
+        );
+
+        _USDCToken.transferFrom(_msgSender(), _seller, so.usdcAmount);
     }
 
     function listSalesOrder()
