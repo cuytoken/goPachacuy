@@ -12,7 +12,7 @@
 ///Developer:lenin.tarrillo.v@gmail.com
 ///Bio:https://www.linkedin.com/in/lenintv/
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.2;
+pragma solidity ^0.8.7;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC777/IERC777.sol";
@@ -109,37 +109,41 @@ contract CuyOrderBook is AccessControl, Pausable {
     //Swap PCUY to USDC
     function _removeSellorder(address _seller) internal {
         salesOrder storage so = salesBook[_seller];
-        salesBook[_seller] = salesOrder({
+      
+
+        if (sellers.length > 0) {
+            sellers[so.numID - 1] = sellers[sellers.length - 1];
+            orderBookNum = orderBookNum - 1;
+             sellers.pop();
+           
+        }
+
+          salesBook[_seller] = salesOrder({
             numID: 0,
             pcuyAmount: 0,
             usdcAmount: 0,
             executed: true
         });
 
-        if (sellers.length > 0) {
-            sellers[so.numID - 1] = sellers[sellers.length - 1];
-            orderBookNum = orderBookNum - 1;
-            sellers.pop();
-        }
     }
 
     //Buy an order (100%)
     function buyOrder(address _seller) public whenNotPaused {
-        salesOrder storage so = salesBook[_msgSender()];
+        salesOrder storage so = salesBook[_seller];
 
         uint256 newPcuy18d = so.pcuyAmount * 1e18;
         uint256 newUSDC6d = so.usdcAmount * 1e6;
 
         require(
-            _PachacuyToken.isOperatorFor(address(this), _msgSender()),
-            "CUY SWAP: Not enough PCUY allowance"
+            _PachacuyToken.isOperatorFor(address(this), _seller),
+            "CUY SWAP:The seller has withdrawn permission to sell"
         );
 
-        uint256 pcuyBalance = _PachacuyToken.balanceOf(_msgSender());
+        uint256 pcuyBalance = _PachacuyToken.balanceOf(_seller);
 
         if (pcuyBalance < newPcuy18d) {
             blackList[_seller] = blackList[_seller] + 1;
-            require(false, "CUY SWAP: The holder no longer has the tokens");
+            require(false, "CUY SWAP: The seller no longer has the balance");
         }
 
         uint256 usdcAllowance = _USDCToken.allowance(
