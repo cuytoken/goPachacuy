@@ -1,20 +1,24 @@
+////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////░█████╗░██████╗░██████╗░███████╗██████╗░  ██████╗░░█████╗░░█████╗░██╗░░██╗////////
+//////////////██╔══██╗██╔══██╗██╔══██╗██╔════╝██╔══██╗  ██╔══██╗██╔══██╗██╔══██╗██║░██╔╝////////
+//////////////██║░░██║██████╔╝██║░░██║█████╗░░██████╔╝  ██████╦╝██║░░██║██║░░██║█████═╝░////////
+//////////////██║░░██║██╔══██╗██║░░██║██╔══╝░░██╔══██╗  ██╔══██╗██║░░██║██║░░██║██╔═██╗░////////
+//////////////╚█████╔╝██║░░██║██████╔╝███████╗██║░░██║  ██████╦╝╚█████╔╝╚█████╔╝██║░╚██╗////////
+//////////////░╚════╝░╚═╝░░╚═╝╚═════╝░╚══════╝╚═╝░░╚═╝  ╚═════╝░░╚════╝░░╚════╝░╚═╝░░╚═╝////////
+/////////////////////////////////////////////////////////////////////////////////////////////////
+////////////Allows Pachacuy holders to establish sales orders for their tokens///////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////
+
 ///Developer:lenin.tarrillo.v@gmail.com
 ///Bio:https://www.linkedin.com/in/lenintv/
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.2;
 
-//In progress
-//is pending: Delete sales order, execute sales order, validate balances.
-
 import "@openzeppelin/contracts/access/AccessControl.sol";
-import "@openzeppelin/contracts/token/ERC777/IERC777Sender.sol";
 import "@openzeppelin/contracts/token/ERC777/IERC777.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC777/IERC777Recipient.sol";
 import "@openzeppelin/contracts/security/Pausable.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
-import "@openzeppelin/contracts/utils/introspection/IERC1820Registry.sol";
-import "@openzeppelin/contracts/utils/introspection/ERC1820Implementer.sol";
 
 contract CuyOrderBook is AccessControl, Pausable {
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
@@ -22,6 +26,7 @@ contract CuyOrderBook is AccessControl, Pausable {
     IERC777 public _PachacuyToken;
     IERC20 public _USDCToken;
     uint256 public orderBookNum = 0;
+    uint256 public completedOrders = 0;
 
     struct salesOrder {
         uint256 numID;
@@ -37,29 +42,36 @@ contract CuyOrderBook is AccessControl, Pausable {
     );
 
     event sellOrderremoved(address seller);
+    event orderCompleted(
+        address buyer,
+        address seller,
+        uint256 pcuyAmount,
+        uint256 usdcAmount
+    );
 
     mapping(address => salesOrder) private salesBook;
     mapping(address => uint256) private blackList;
 
     address[] private sellers;
 
-    constructor() {
+    constructor(address pachacuyToken, address usdcToken) {
         _setupRole(ADMIN_ROLE, _msgSender());
+        _PachacuyToken = IERC777(pachacuyToken);
+        _USDCToken = IERC20(usdcToken);
     }
 
-    //Set PCUY Token Address
-    function setPCUYTokenAddress(address pcuyAddress)
-        public
-        onlyRole(ADMIN_ROLE)
-    {
-        _PachacuyToken = IERC777(pcuyAddress);
-    }
-
-    //Swap PCUY to USDC
-    function placeSellOrder(uint256 _pcuyAmount, uint256 _usdcAmount)
+    //set up a sell order
+    function setSellOrder(uint256 _pcuyAmount, uint256 _usdcAmount)
         public
         whenNotPaused
     {
+        uint256 _newpcuyAmount = _pcuyAmount * 1e18;
+
+        require(
+            blackList[_msgSender()] <= 1,
+            "CUY SWAP:Wallet blacklisted for unsuccessful attempts to sell"
+        );
+
         require(
             _PachacuyToken.isOperatorFor(address(this), _msgSender()),
             "CUY SWAP: Not enough PCUY allowance"
@@ -67,7 +79,7 @@ contract CuyOrderBook is AccessControl, Pausable {
 
         uint256 pcuyBalance = _PachacuyToken.balanceOf(_msgSender());
         require(
-            pcuyBalance >= _pcuyAmount,
+            pcuyBalance >= _newpcuyAmount,
             "CUY SWAP: Not enough PCUY balance"
         );
 
@@ -87,10 +99,17 @@ contract CuyOrderBook is AccessControl, Pausable {
         emit sellOrderEstablished(_msgSender(), _pcuyAmount, _usdcAmount);
     }
 
-    //Swap PCUY to USDC
+    //remove a sell order
     function removeSellorder() public whenNotPaused {
-        salesOrder storage so = salesBook[_msgSender()];
-        salesBook[_msgSender()] = salesOrder({
+        _removeSellorder(_msgSender());
+
+        emit sellOrderremoved(_msgSender());
+    }
+
+    //Swap PCUY to USDC
+    function _removeSellorder(address _seller) internal {
+        salesOrder storage so = salesBook[_seller];
+        salesBook[_seller] = salesOrder({
             numID: 0,
             pcuyAmount: 0,
             usdcAmount: 0,
@@ -99,19 +118,17 @@ contract CuyOrderBook is AccessControl, Pausable {
 
         if (sellers.length > 0) {
             sellers[so.numID - 1] = sellers[sellers.length - 1];
+            orderBookNum = orderBookNum - 1;
+            sellers.pop();
         }
-        sellers.pop();
-        emit sellOrderremoved(_msgSender());
     }
 
+    //Buy an order (100%)
     function buyOrder(address _seller) public whenNotPaused {
         salesOrder storage so = salesBook[_msgSender()];
-        salesBook[_msgSender()] = salesOrder({
-            numID: 0,
-            pcuyAmount: 0,
-            usdcAmount: 0,
-            executed: true
-        });
+
+        uint256 newPcuy18d = so.pcuyAmount * 1e18;
+        uint256 newUSDC6d = so.usdcAmount * 1e6;
 
         require(
             _PachacuyToken.isOperatorFor(address(this), _msgSender()),
@@ -120,7 +137,7 @@ contract CuyOrderBook is AccessControl, Pausable {
 
         uint256 pcuyBalance = _PachacuyToken.balanceOf(_msgSender());
 
-        if (pcuyBalance <= so.pcuyAmount) {
+        if (pcuyBalance < newPcuy18d) {
             blackList[_seller] = blackList[_seller] + 1;
             require(false, "CUY SWAP: The holder no longer has the tokens");
         }
@@ -131,27 +148,50 @@ contract CuyOrderBook is AccessControl, Pausable {
         );
 
         require(
-            usdcAllowance >= so.usdcAmount,
+            usdcAllowance >= newUSDC6d,
             "CUY SWAP: Not enough USDC allowance"
         );
 
         uint256 usdcBalance = _USDCToken.balanceOf(_msgSender());
-        require(
-            usdcBalance >= so.usdcAmount,
-            "CUY SWAP: Not enough USDC balance"
-        );
+        require(usdcBalance >= newUSDC6d, "CUY SWAP: Not enough USDC balance");
 
-        //enviamos los pCUY
+        _PachacuyToken.operatorSend(_seller, _msgSender(), newPcuy18d, "", "");
 
-        _PachacuyToken.operatorSend(
-            _seller,
+        _USDCToken.transferFrom(_msgSender(), _seller, newUSDC6d);
+
+        _removeSellorder(_seller);
+
+        completedOrders = completedOrders + 1;
+
+        emit orderCompleted(
             _msgSender(),
-            so.pcuyAmount * 1e18,
-            "",
-            ""
+            _seller,
+            so.pcuyAmount,
+            so.usdcAmount
         );
+    }
 
-        _USDCToken.transferFrom(_msgSender(), _seller, so.usdcAmount);
+
+    function setPCUYTokenAddress(address pcuyAddress)
+        public
+        onlyRole(ADMIN_ROLE)
+    {
+        _PachacuyToken = IERC777(pcuyAddress);
+    }
+
+    function setUSDCTokenAddress(address uSDCTokenAddress)
+        public
+        onlyRole(ADMIN_ROLE)
+    {
+        _USDCToken = IERC20(uSDCTokenAddress);
+    }
+
+    function removeBlacklist(address seller)
+        public
+        whenNotPaused
+        onlyRole(ADMIN_ROLE)
+    {
+        blackList[seller] = 0;
     }
 
     function listSalesOrder()
@@ -181,6 +221,34 @@ contract CuyOrderBook is AccessControl, Pausable {
         _sellers = sellers;
         _pcuysAmounts = aux_pcuysAmounts;
         _usdcAmounts = aux_usdcAmounts;
+    }
+
+    function copyright() public view virtual returns (string memory) {
+        return "PACHACUY WEB3 SERVICES";
+    }
+
+    function name() public view virtual returns (string memory) {
+        return "CUY SWAP: ORDER BOOK";
+    }
+
+    function symbol() public view virtual returns (string memory) {
+        return "CUY";
+    }
+
+    function isBlackList(address seller) public view returns (uint256) {
+        return blackList[seller];
+    }
+
+    function numSellers() public view returns (uint256) {
+        return sellers.length;
+    }
+
+    function pause() public onlyRole(ADMIN_ROLE) {
+        _pause();
+    }
+
+    function unpause() public onlyRole(ADMIN_ROLE) {
+        _unpause();
     }
 
     function version() public pure virtual returns (string memory) {
