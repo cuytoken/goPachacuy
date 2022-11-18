@@ -94,7 +94,9 @@ contract CuyOrderBook is AccessControl, Pausable {
 
         salesBook[_msgSender()] = newSalesOrder;
 
-        sellers.push(_msgSender());
+        if (salesBook[_msgSender()].numID > 0) {
+            sellers.push(_msgSender());
+        }
 
         emit sellOrderEstablished(_msgSender(), _pcuyAmount, _usdcAmount);
     }
@@ -109,25 +111,22 @@ contract CuyOrderBook is AccessControl, Pausable {
     //Swap PCUY to USDC
     function _removeSellorder(address _seller) internal {
         salesOrder storage so = salesBook[_seller];
-      
 
         if (sellers.length > 0) {
             sellers[so.numID - 1] = sellers[sellers.length - 1];
             orderBookNum = orderBookNum - 1;
-             sellers.pop();
-           
+            sellers.pop();
         }
 
-          salesBook[_seller] = salesOrder({
+        salesBook[_seller] = salesOrder({
             numID: 0,
             pcuyAmount: 0,
             usdcAmount: 0,
             executed: true
         });
-
     }
 
-    //Buy an order (100%)
+    //Buy an order
     function buyOrder(address _seller) public whenNotPaused {
         salesOrder storage so = salesBook[_seller];
 
@@ -175,7 +174,6 @@ contract CuyOrderBook is AccessControl, Pausable {
         );
     }
 
-
     function setPCUYTokenAddress(address pcuyAddress)
         public
         onlyRole(ADMIN_ROLE)
@@ -198,7 +196,54 @@ contract CuyOrderBook is AccessControl, Pausable {
         blackList[seller] = 0;
     }
 
-    function listSalesOrder()
+    function listSalesOrderByWallet(address seller)
+        external
+        view
+        returns (
+            address _seller,
+            uint256 _pcuysAmount,
+            uint256 _usdcAmount,
+            bool _executed
+        )
+    {
+        salesOrder storage so = salesBook[seller];
+        _seller = seller;
+        _pcuysAmount = so.pcuyAmount;
+        _usdcAmount = so.usdcAmount;
+        _executed = so.executed;
+    }
+
+    function listSalesOrderAll()
+        external
+        view
+        returns (
+            address[] memory _sellers,
+            uint256[] memory _pcuysAmounts,
+            uint256[] memory _usdcAmounts,
+            bool[] memory _executeds
+        )
+    {
+        uint256[] memory aux_pcuysAmounts = new uint256[](sellers.length);
+        uint256[] memory aux_usdcAmounts = new uint256[](sellers.length);
+        bool[] memory aux_executeds = new bool[](sellers.length);
+
+        uint256 index = sellers.length;
+        uint256 s;
+
+        for (s = 0; s < index; s++) {
+            salesOrder storage so = salesBook[sellers[s]];
+            aux_pcuysAmounts[s] = so.pcuyAmount;
+            aux_usdcAmounts[s] = so.usdcAmount;
+            aux_executeds[s] = so.executed;
+        }
+
+        _sellers = sellers;
+        _pcuysAmounts = aux_pcuysAmounts;
+        _usdcAmounts = aux_usdcAmounts;
+        _executeds = aux_executeds;
+    }
+
+    function listSalesOrderPending()
         external
         view
         returns (
