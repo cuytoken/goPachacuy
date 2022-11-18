@@ -33,6 +33,8 @@ contract CuyOrderBook is AccessControl, Pausable {
         uint256 pcuyAmount;
         uint256 usdcAmount;
         bool executed;
+        address seller;
+        address buyer;
     }
 
     event sellOrderEstablished(
@@ -41,7 +43,7 @@ contract CuyOrderBook is AccessControl, Pausable {
         uint256 usdcAmount
     );
 
-    event sellOrderremoved(address seller);
+    event sellOrderremoved(uint256 ID);
     event orderCompleted(
         address buyer,
         address seller,
@@ -49,10 +51,12 @@ contract CuyOrderBook is AccessControl, Pausable {
         uint256 usdcAmount
     );
 
-    mapping(address => salesOrder) private salesBook;
+    mapping(uint256 => salesOrder) private salesBook;
+    mapping(uint256 => salesOrder) private salesBookCompleted;
+
     mapping(address => uint256) private blackList;
 
-    address[] private sellers;
+    uint256[] private keyBookPending;
 
     constructor(address pachacuyToken, address usdcToken) {
         _setupRole(ADMIN_ROLE, _msgSender());
@@ -89,59 +93,68 @@ contract CuyOrderBook is AccessControl, Pausable {
             numID: orderBookNum,
             pcuyAmount: _pcuyAmount,
             usdcAmount: _usdcAmount,
-            executed: false
+            executed: false,
+            seller: _msgSender(),
+            buyer: address(0)
         });
 
-        salesBook[_msgSender()] = newSalesOrder;
-
-        if (salesBook[_msgSender()].numID > 0) {
-            sellers.push(_msgSender());
-        }
+        keyBookPending.push(orderBookNum);
+        salesBook[orderBookNum] = newSalesOrder;
 
         emit sellOrderEstablished(_msgSender(), _pcuyAmount, _usdcAmount);
     }
 
     //remove a sell order
-    function removeSellorder() public whenNotPaused {
-        _removeSellorder(_msgSender());
+    function removeSellorder(uint256 ID) public whenNotPaused {
+        _removeSellorder(ID, _msgSender());
 
-        emit sellOrderremoved(_msgSender());
+        emit sellOrderremoved(ID);
     }
 
     //Swap PCUY to USDC
-    function _removeSellorder(address _seller) internal {
-        salesOrder storage so = salesBook[_seller];
+    function _removeSellorder(uint256 ID, address seller) internal {
+        salesOrder storage so = salesBook[ID];
 
-        if (sellers.length > 0) {
-            sellers[so.numID - 1] = sellers[sellers.length - 1];
-            orderBookNum = orderBookNum - 1;
-            sellers.pop();
+        require(so.numID > 0, "CUY SWAP: There is no pending order");
+
+        require(so.seller == seller, "CUY SWAP: Wallet without pending orders");
+
+        if (ID > 1) {
+            keyBookPending[ID - 1] = keyBookPending[keyBookPending.length - 1];
         }
 
-        salesBook[_seller] = salesOrder({
+        orderBookNum = orderBookNum - 1;
+
+        if (keyBookPending.length > 1) {
+            keyBookPending.pop();
+        }
+
+        salesBook[ID] = salesOrder({
             numID: 0,
             pcuyAmount: 0,
             usdcAmount: 0,
-            executed: true
+            executed: true,
+            seller: address(0),
+            buyer: address(0)
         });
     }
 
     //Buy an order
-    function buyOrder(address _seller) public whenNotPaused {
-        salesOrder storage so = salesBook[_seller];
-
+    function buyOrder(uint256 ID) public whenNotPaused {
+        salesOrder storage so = salesBook[ID];
+        require(so.numID > 0, "CUY SWAP: There is no pending order");
         uint256 newPcuy18d = so.pcuyAmount * 1e18;
         uint256 newUSDC6d = so.usdcAmount * 1e6;
 
         require(
-            _PachacuyToken.isOperatorFor(address(this), _seller),
+            _PachacuyToken.isOperatorFor(address(this), so.seller),
             "CUY SWAP:The seller has withdrawn permission to sell"
         );
 
-        uint256 pcuyBalance = _PachacuyToken.balanceOf(_seller);
+        uint256 pcuyBalance = _PachacuyToken.balanceOf(so.seller);
 
         if (pcuyBalance < newPcuy18d) {
-            blackList[_seller] = blackList[_seller] + 1;
+            blackList[so.seller] = blackList[so.seller] + 1;
             require(false, "CUY SWAP: The seller no longer has the balance");
         }
 
@@ -158,17 +171,32 @@ contract CuyOrderBook is AccessControl, Pausable {
         uint256 usdcBalance = _USDCToken.balanceOf(_msgSender());
         require(usdcBalance >= newUSDC6d, "CUY SWAP: Not enough USDC balance");
 
-        _PachacuyToken.operatorSend(_seller, _msgSender(), newPcuy18d, "", "");
+        _PachacuyToken.operatorSend(
+            so.seller,
+            _msgSender(),
+            newPcuy18d,
+            "",
+            ""
+        );
 
-        _USDCToken.transferFrom(_msgSender(), _seller, newUSDC6d);
+        _USDCToken.transferFrom(_msgSender(), so.seller, newUSDC6d);
 
-        _removeSellorder(_seller);
+        _removeSellorder(ID, so.seller);
 
         completedOrders = completedOrders + 1;
 
+        salesBookCompleted[completedOrders] = salesOrder({
+            numID: completedOrders,
+            pcuyAmount: so.pcuyAmount,
+            usdcAmount: so.usdcAmount,
+            executed: true,
+            seller: so.seller,
+            buyer: _msgSender()
+        });
+
         emit orderCompleted(
             _msgSender(),
-            _seller,
+            so.seller,
             so.pcuyAmount,
             so.usdcAmount
         );
@@ -200,74 +228,104 @@ contract CuyOrderBook is AccessControl, Pausable {
         external
         view
         returns (
-            address _seller,
-            uint256 _pcuysAmount,
-            uint256 _usdcAmount,
-            bool _executed
-        )
-    {
-        salesOrder storage so = salesBook[seller];
-        _seller = seller;
-        _pcuysAmount = so.pcuyAmount;
-        _usdcAmount = so.usdcAmount;
-        _executed = so.executed;
-    }
-
-    function listSalesOrderAll()
-        external
-        view
-        returns (
-            address[] memory _sellers,
+            uint256[] memory _keyOrders,
             uint256[] memory _pcuysAmounts,
             uint256[] memory _usdcAmounts,
             bool[] memory _executeds
         )
     {
-        uint256[] memory aux_pcuysAmounts = new uint256[](sellers.length);
-        uint256[] memory aux_usdcAmounts = new uint256[](sellers.length);
-        bool[] memory aux_executeds = new bool[](sellers.length);
-
-        uint256 index = sellers.length;
+        uint256 index = keyBookPending.length;
         uint256 s;
 
+        uint256[] memory aux_pcuysAmounts = new uint256[](
+            keyBookPending.length
+        );
+        uint256[] memory aux_keyOrders = new uint256[](keyBookPending.length);
+        uint256[] memory aux_usdcAmounts = new uint256[](keyBookPending.length);
+        bool[] memory aux_executeds = new bool[](keyBookPending.length);
+
         for (s = 0; s < index; s++) {
-            salesOrder storage so = salesBook[sellers[s]];
-            aux_pcuysAmounts[s] = so.pcuyAmount;
-            aux_usdcAmounts[s] = so.usdcAmount;
-            aux_executeds[s] = so.executed;
+            salesOrder storage so = salesBook[keyBookPending[s]];
+            if (so.seller == seller) {
+                aux_keyOrders[s] = so.numID;
+                aux_pcuysAmounts[s] = so.pcuyAmount;
+                aux_usdcAmounts[s] = so.usdcAmount;
+                aux_executeds[s] = so.executed;
+            }
         }
 
-        _sellers = sellers;
+        _keyOrders = aux_keyOrders;
         _pcuysAmounts = aux_pcuysAmounts;
         _usdcAmounts = aux_usdcAmounts;
         _executeds = aux_executeds;
+    }
+
+    function listSalesOrderCompleted()
+        external
+        view
+        returns (
+            uint256[] memory _keyOrders,
+            uint256[] memory _pcuysAmounts,
+            uint256[] memory _usdcAmounts,
+            address[] memory _buyers,
+            address[] memory _sellers
+        )
+    {
+        uint256[] memory aux_pcuysAmounts = new uint256[](completedOrders);
+        uint256[] memory aux_usdcAmounts = new uint256[](completedOrders);
+        address[] memory aux_buyers = new address[](completedOrders);
+        address[] memory aux_sellers = new address[](completedOrders);
+        uint256[] memory aux_keyOrders = new uint256[](completedOrders);
+
+        uint256 index = completedOrders;
+        uint256 s;
+
+        for (s = 1; s <= index; s++) {
+            salesOrder storage so = salesBookCompleted[s];
+            aux_keyOrders[s] = so.numID;
+            aux_pcuysAmounts[s] = so.pcuyAmount;
+            aux_usdcAmounts[s] = so.usdcAmount;
+            aux_buyers[s] = so.buyer;
+            aux_sellers[s] = so.seller;
+        }
+
+        _keyOrders = aux_keyOrders;
+        _pcuysAmounts = aux_pcuysAmounts;
+        _usdcAmounts = aux_usdcAmounts;
+        _buyers = aux_buyers;
+        _sellers = aux_sellers;
     }
 
     function listSalesOrderPending()
         external
         view
         returns (
+            uint256[] memory _keyOrders,
             address[] memory _sellers,
             uint256[] memory _pcuysAmounts,
             uint256[] memory _usdcAmounts
         )
     {
-        uint256[] memory aux_pcuysAmounts = new uint256[](sellers.length);
-        uint256[] memory aux_usdcAmounts = new uint256[](sellers.length);
-
-        uint256 index = sellers.length;
+        uint256 index = keyBookPending.length;
         uint256 s;
 
-        for (s = 0; s < index; s++) {
-            salesOrder storage so = salesBook[sellers[s]];
+        uint256[] memory aux_pcuysAmounts = new uint256[](
+            keyBookPending.length
+        );
+        uint256[] memory aux_keyOrders = new uint256[](keyBookPending.length);
+        uint256[] memory aux_usdcAmounts = new uint256[](keyBookPending.length);
+        address[] memory aux_sellers = new address[](keyBookPending.length);
 
-            if (so.executed == false) {
-                aux_pcuysAmounts[s] = so.pcuyAmount;
-                aux_usdcAmounts[s] = so.usdcAmount;
-            }
+        for (s = 0; s < index; s++) {
+            salesOrder storage so = salesBook[keyBookPending[s]];
+            aux_keyOrders[s] = so.numID;
+            aux_pcuysAmounts[s] = so.pcuyAmount;
+            aux_usdcAmounts[s] = so.usdcAmount;
+            aux_sellers[s] = so.seller;
         }
 
-        _sellers = sellers;
+        _keyOrders = aux_keyOrders;
+        _sellers = aux_sellers;
         _pcuysAmounts = aux_pcuysAmounts;
         _usdcAmounts = aux_usdcAmounts;
     }
@@ -288,8 +346,8 @@ contract CuyOrderBook is AccessControl, Pausable {
         return blackList[seller];
     }
 
-    function numSellers() public view returns (uint256) {
-        return sellers.length;
+    function orderPending() public view returns (uint256) {
+        return keyBookPending.length;
     }
 
     function pause() public onlyRole(ADMIN_ROLE) {
