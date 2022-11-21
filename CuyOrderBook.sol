@@ -106,30 +106,29 @@ contract CuyOrderBook is AccessControl, Pausable {
 
     //remove a sell order
     function removeSellorder(uint256 ID) public whenNotPaused {
-        _removeSellorder(ID, _msgSender());
-
+        require(
+            keyBookPending[ID - 1] > 0,
+            "CUY SWAP: There is no pending order"
+        );
+        uint256 IDOrder = keyBookPending[ID - 1];
+        _removeSellorder(ID - 1, IDOrder, _msgSender());
         emit sellOrderremoved(ID);
     }
 
     //Swap PCUY to USDC
-    function _removeSellorder(uint256 ID, address seller) internal {
-        salesOrder storage so = salesBook[ID];
-
+    function _removeSellorder(
+        uint256 index,
+        uint256 IDOrder,
+        address seller
+    ) internal {
+        salesOrder storage so = salesBook[IDOrder];
         require(so.numID > 0, "CUY SWAP: There is no pending order");
-
         require(so.seller == seller, "CUY SWAP: Wallet without pending orders");
 
-        if (ID > 1) {
-            keyBookPending[ID - 1] = keyBookPending[keyBookPending.length - 1];
-        }
+        keyBookPending[index] = keyBookPending[keyBookPending.length - 1];
+        keyBookPending.pop();
 
-        orderBookNum = orderBookNum - 1;
-
-        if (keyBookPending.length > 1) {
-            keyBookPending.pop();
-        }
-
-        salesBook[ID] = salesOrder({
+        salesBook[IDOrder] = salesOrder({
             numID: 0,
             pcuyAmount: 0,
             usdcAmount: 0,
@@ -141,7 +140,14 @@ contract CuyOrderBook is AccessControl, Pausable {
 
     //Buy an order
     function buyOrder(uint256 ID) public whenNotPaused {
-        salesOrder storage so = salesBook[ID];
+        require(
+            keyBookPending[ID - 1] > 0,
+            "CUY SWAP: There is no pending order"
+        );
+
+        uint256 IDOrder = keyBookPending[ID - 1];
+
+        salesOrder storage so = salesBook[IDOrder];
         require(so.numID > 0, "CUY SWAP: There is no pending order");
         uint256 newPcuy18d = so.pcuyAmount * 1e18;
         uint256 newUSDC6d = so.usdcAmount * 1e6;
@@ -181,8 +187,6 @@ contract CuyOrderBook is AccessControl, Pausable {
 
         _USDCToken.transferFrom(_msgSender(), so.seller, newUSDC6d);
 
-        _removeSellorder(ID, so.seller);
-
         completedOrders = completedOrders + 1;
 
         salesBookCompleted[completedOrders] = salesOrder({
@@ -193,12 +197,13 @@ contract CuyOrderBook is AccessControl, Pausable {
             seller: so.seller,
             buyer: _msgSender()
         });
+        _removeSellorder(ID - 1, IDOrder, so.seller);
 
         emit orderCompleted(
             _msgSender(),
-            so.seller,
-            so.pcuyAmount,
-            so.usdcAmount
+            salesBookCompleted[completedOrders].seller,
+            salesBookCompleted[completedOrders].pcuyAmount,
+            salesBookCompleted[completedOrders].usdcAmount
         );
     }
 
@@ -247,7 +252,7 @@ contract CuyOrderBook is AccessControl, Pausable {
         for (s = 0; s < index; s++) {
             salesOrder storage so = salesBook[keyBookPending[s]];
             if (so.seller == seller) {
-                aux_keyOrders[s] = so.numID;
+                aux_keyOrders[s] = s + 1;
                 aux_pcuysAmounts[s] = so.pcuyAmount;
                 aux_usdcAmounts[s] = so.usdcAmount;
                 aux_executeds[s] = so.executed;
@@ -282,11 +287,11 @@ contract CuyOrderBook is AccessControl, Pausable {
 
         for (s = 1; s <= index; s++) {
             salesOrder storage so = salesBookCompleted[s];
-            aux_keyOrders[s] = so.numID;
-            aux_pcuysAmounts[s] = so.pcuyAmount;
-            aux_usdcAmounts[s] = so.usdcAmount;
-            aux_buyers[s] = so.buyer;
-            aux_sellers[s] = so.seller;
+            aux_keyOrders[s - 1] = so.numID;
+            aux_pcuysAmounts[s - 1] = so.pcuyAmount;
+            aux_usdcAmounts[s - 1] = so.usdcAmount;
+            aux_buyers[s - 1] = so.buyer;
+            aux_sellers[s - 1] = so.seller;
         }
 
         _keyOrders = aux_keyOrders;
@@ -318,7 +323,7 @@ contract CuyOrderBook is AccessControl, Pausable {
 
         for (s = 0; s < index; s++) {
             salesOrder storage so = salesBook[keyBookPending[s]];
-            aux_keyOrders[s] = so.numID;
+            aux_keyOrders[s] = s + 1;
             aux_pcuysAmounts[s] = so.pcuyAmount;
             aux_usdcAmounts[s] = so.usdcAmount;
             aux_sellers[s] = so.seller;
