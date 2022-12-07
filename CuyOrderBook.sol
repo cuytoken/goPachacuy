@@ -53,9 +53,7 @@ contract CuyOrderBook is AccessControl, Pausable {
 
     mapping(uint256 => salesOrder) private salesBook;
     mapping(uint256 => salesOrder) private salesBookCompleted;
-
     mapping(address => uint256) private blackList;
-
     uint256[] private keyBookPending;
 
     constructor(address pachacuyToken, address usdcToken) {
@@ -115,7 +113,7 @@ contract CuyOrderBook is AccessControl, Pausable {
         emit sellOrderremoved(ID);
     }
 
-    //Swap PCUY to USDC
+    //Internal fuction - Remove Sell Order
     function _removeSellorder(
         uint256 index,
         uint256 IDOrder,
@@ -138,7 +136,7 @@ contract CuyOrderBook is AccessControl, Pausable {
         });
     }
 
-    //Buy an order
+    //Buy an order by ID
     function buyOrder(uint256 ID) public whenNotPaused {
         require(
             keyBookPending[ID - 1] > 0,
@@ -229,6 +227,7 @@ contract CuyOrderBook is AccessControl, Pausable {
         blackList[seller] = 0;
     }
 
+    //List Sales Order By Wallet
     function listSalesOrderByWallet(address seller)
         external
         view
