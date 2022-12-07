@@ -8,11 +8,11 @@
 /////////////////////////////////////////////////////////////////////////////////////////////////
 ////////////Allows Pachacuy holders to establish sales orders for their tokens///////////////////
 /////////////////////////////////////////////////////////////////////////////////////////////////
-
 ///Developer:lenin.tarrillo.v@gmail.com
 ///Bio:https://www.linkedin.com/in/lenintv/
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.7;
+
+//SPDX-License-Identifier: MIT
+pragma solidity ^0.8.2;
 
 import "@openzeppelin/contracts/access/AccessControl.sol";
 import "@openzeppelin/contracts/token/ERC777/IERC777.sol";
